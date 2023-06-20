@@ -6,8 +6,36 @@ const fs = require("fs");
 var net = require('net');
 require('dotenv').config();
 
-
+const http = require("http");
+const host = '0.0.0.0';
+const port = 4711;
 var tracked_callsign = process.env.VUE_APP_TRACKED_CALLSIGN;
+
+const requestListener = function (req, res) {
+  // console.log('requestListener: '); // + JSON.stringify(req));
+  // console.dir(req.body);
+
+  if (req.method == 'POST') {
+    console.log('POST')
+    var body = ''
+    req.on('data', function (data) {
+      body += data
+    })
+    req.on('end', function () {
+      // console.log('Body: ' + JSON.stringify(body, null, 2))
+      io.emit('sensorlogger', body); // Push to webclient
+    })
+  }
+  res.writeHead(200);
+  res.end();
+};
+
+const httpserver = http.createServer(requestListener);
+httpserver.listen(port, host, () => {
+  console.log(`Server is running on http://${host}:${port}`);
+});
+
+
 console.log("Desired callsign target: " + tracked_callsign);
 
 var gnuradio_server = net.createServer();
@@ -34,38 +62,38 @@ gnuradio_server.on('connection', function (socket) {
   socket.on('data', function (new_flight_data) {
     const parser = new aprs.APRSParser();
     var flight_data_json = parser.parse(new_flight_data);
-    if(flight_data_json.from == null || 
-       flight_data_json.data == null || 
-       flight_data_json.data.latitude == null ||
-       flight_data_json.data.longitude == null ||
-       flight_data_json.data.altitude == null) {
+    if (flight_data_json.from == null ||
+      flight_data_json.data == null ||
+      flight_data_json.data.latitude == null ||
+      flight_data_json.data.longitude == null ||
+      flight_data_json.data.altitude == null) {
       // ARPS without a callsign origin, latitude, longitude and altitude to be discarded.
-      console.log("\x1b[31m" , "ERROR Unparsable data: " + new_flight_data, "\x1b[37m"); // output in red
+      console.log("\x1b[31m", "ERROR Unparsable data: " + new_flight_data, "\x1b[37m"); // output in red
       return;
     }
     var callsign = flight_data_json.from.call;
     if (callsign != tracked_callsign) {
-      console.log("\x1b[33m%s\x1b[0m" , "WARNING Undesired data: " + new_flight_data, "\x1b[37m"); // output in yellow
+      console.log("\x1b[33m%s\x1b[0m", "WARNING Undesired data: " + new_flight_data, "\x1b[37m"); // output in yellow
       return;
     }
-    if(Date.now() - duplicate_preventer_timestamp_ms < buffer_time_ms) {
+    if (Date.now() - duplicate_preventer_timestamp_ms < buffer_time_ms) {
       // Likely to be a digipeater
-      console.log("\x1b[33m%s\x1b[0m" , "Likely repeated packet. Ignoring: " + new_flight_data, "\x1b[37m"); // output in yellow
+      console.log("\x1b[33m%s\x1b[0m", "Likely repeated packet. Ignoring: " + new_flight_data, "\x1b[37m"); // output in yellow
       return;
     }
     duplicate_preventer_timestamp_ms = Date.now();
-    var latitude = flight_data_json.data.latitude; 
-    var longitude = flight_data_json.data.longitude; 
+    var latitude = flight_data_json.data.latitude;
+    var longitude = flight_data_json.data.longitude;
     var altitude = flight_data_json.data.altitude; // in meters
     var timestamp = flight_data_json.data.timestamp;
     if (timestamp == null) { // use system time received if timestamp is not present
       timestamp = new Date().toISOString();
     }
     var comment = flight_data_json.data.comment;
-    var json_string = JSON.stringify({"callsign":callsign, "longitude":longitude, "latitude":latitude, "height":altitude, "time":timestamp, "comment":comment});
+    var json_string = JSON.stringify({ "callsign": callsign, "longitude": longitude, "latitude": latitude, "height": altitude, "time": timestamp, "comment": comment });
     console.log("\x1b[32m", "Parsed  " + json_string, "\x1b[37m\n"); // output in green
-    io.emit('new_flight_point', {"callsign":callsign, "longitude":longitude, "latitude":latitude, "height":altitude, "time":timestamp, "comment":comment}); // Push to webclient
-    fs.appendFileSync("flight_data.json", json_string+'\n'); // Push to database
+    io.emit('new_flight_point', { "callsign": callsign, "longitude": longitude, "latitude": latitude, "height": altitude, "time": timestamp, "comment": comment }); // Push to webclient
+    fs.appendFileSync("flight_data.json", json_string + '\n'); // Push to database
   });
 
   socket.on('drain', function () {
@@ -133,7 +161,7 @@ app.use(express.static('dist'))
 
 // Serve the files on port 8000.
 let server = app.listen(8000, function () {
-  console.log('Cesium flight tracker app listening on port 80!\n');
+  console.log('Cesium flight tracker app listening on port 8000!\n');
 });
 
 const io = new Server(server);
