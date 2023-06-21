@@ -16,13 +16,13 @@ const requestListener = function (req, res) {
   // console.dir(req.body);
 
   if (req.method == 'POST') {
-    console.log('POST')
     var body = ''
     req.on('data', function (data) {
       body += data
     })
     req.on('end', function () {
       // console.log('Body: ' + JSON.stringify(body, null, 2))
+      // console.log('Body: ' + body);
       io.emit('sensorlogger', body); // Push to webclient
     })
   }
@@ -169,8 +169,8 @@ const io = new Server(server);
 
 io.on('connection', (socket) => {
   console.log('connection')
-  var prev_flight_data = fs.readFileSync("flight_data.json", 'utf-8');
-  socket.emit("prev_flight_data", prev_flight_data);
+  // var prev_flight_data = fs.readFileSync("flight_data.json", 'utf-8');
+  // socket.emit("prev_flight_data", prev_flight_data);
 })
 
 setInterval(() => {
