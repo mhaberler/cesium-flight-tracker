@@ -14,16 +14,25 @@ export default {
   props: {
     msg: String
   },
+
   mounted: () => {
     const socket = io(window.location.host, { path: "/socket.io" });
     Cesium.Ion.defaultAccessToken = process.env.VUE_APP_ACCESS_TOKEN;
 
-    var viewer = new Cesium.Viewer("cesiumContainer", {
-      sceneMode: Cesium.SceneMode.SCENE3D,
-      terrainProvider: Cesium.createWorldTerrain({
-        requestVertexNormals: true
-      }),
-      scene3DOnly: false, // Enable 2D and Columbus View
+    try {
+      var viewer = new Cesium.Viewer("cesiumContainer", {
+        sceneMode: Cesium.SceneMode.SCENE3D,
+        scene3DOnly: false, // Enable 2D and Columbus View
+      });
+    } catch (error) {
+      console.log(error);
+    }
+
+    Cesium.createWorldTerrainAsync({
+      requestVertexNormals: true,
+    }).then((res) => {
+      console.log('terrain provider is ready');
+      viewer.terrainProvider = res;
     });
 
     // The SampledPositionedProperty stores the position and timestamp for each sample along the radar sample series.
@@ -147,7 +156,7 @@ export default {
 
             viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
               current_time,
-              - loc_interval_ms * 2 / 1000,
+              - loc_interval_ms * 1.3 / 1000,
               new Cesium.JulianDate()
             );
             viewer.clock.shouldAnimate = true;
