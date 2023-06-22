@@ -52,7 +52,8 @@ export default {
       }
     );
     var teleplot_ws = null;
-
+    var run_teleplot = false;
+    
     var alpha = 0.2;
     var loc_interval_ms = -1; // updates/sec
     var last_loc_update_ms = null;
@@ -240,7 +241,6 @@ export default {
       }
 
       serverUrl = scheme + "://" + document.location.hostname + ":8081";
-
       teleplot_ws = new ReconnectingWebSocket(serverUrl, "json");
       console.log("ReconnectingWebSocket created");
 
@@ -255,9 +255,9 @@ export default {
         console.dir(msg);
       };
     }
-
-    connect();
-
+    if (run_teleplot) {
+      connect();
+    }
   }
 }
 </script>
