@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@vue/cli": "^5.0.0-beta.3",
-    "aprs-parser": "^1.0.7",
     "cesium": "^1.85.0",
     "copy-webpack-plugin": "^11.0.0",
     "core-js": "^3.6.5",
