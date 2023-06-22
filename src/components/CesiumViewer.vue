@@ -6,6 +6,8 @@
 import * as Cesium from "cesium";
 import "../../node_modules/cesium/Build/Cesium/Widgets/widgets.css";
 import { io } from "socket.io-client";
+import ReconnectingWebSocket from 'reconnecting-websocket';
+
 // import "./css/main.css";
 export default {
   name: "CesiumViewer",
@@ -14,7 +16,6 @@ export default {
   },
   mounted: () => {
     const socket = io(window.location.host, { path: "/socket.io" });
-
     Cesium.Ion.defaultAccessToken = process.env.VUE_APP_ACCESS_TOKEN;
 
     var viewer = new Cesium.Viewer("cesiumContainer", {
@@ -41,11 +42,17 @@ export default {
         viewer.flyTo(balloonEntity);
       }
     );
+    var teleplot_ws = null;
 
-    var start_time = null; // for two different socket callbacks to manipulate the start time of the animation
-    // var stop_time = null; // for two different socket callbacks to manipulate the stop time of the animation
-    var current_time = null; // for two different socket callbacks to manipulate the current time of the animation
-    var balloonEntity = null; // for two different socket callbacks to manipulate the entity that models the position of the balloon
+    var alpha = 0.2;
+    var loc_interval_ms = -1; // updates/sec
+    var last_loc_update_ms = null;
+
+    // var start_time = null;
+    // var stop_time = null; 
+    var current_time = null;
+    var current_time_ms = null;
+    var balloonEntity = null;
     var norm_orient = new Cesium.Quaternion();
     var position, orientation;
 
@@ -53,29 +60,52 @@ export default {
     var loc_count = 0;
     var hpr = true;
 
+    function teleplot(v) {
+      if (teleplot_ws) {
+        teleplot_ws.send(v);
+      }
+    }
+
+    function addBalloon() {
+      console.log("addBalloon");
+      balloonEntity = viewer.entities.add({
+        // add path for flight points we already know.
+        // availability: new Cesium.TimeIntervalCollection([
+        //   new Cesium.TimeInterval({ start: start_time, stop: current_time })
+        // ]),
+        position: positionProperty,
+        // point: { pixelSize: 30, color: Cesium.Color.GREEN },
+        model: { uri: "./CesiumBalloon.glb", maximumScale: 5000, minimumPixelSize: 64 },
+        // model: { uri: balloonUri, maximumScale: 5000},
+        orientation: orientationProperty,
+        // orientation: new Cesium.VelocityOrientationProperty(positionProperty),
+        path: new Cesium.PathGraphics({ width: 3 })
+      });
+    }
+    addBalloon();
+
     socket.on("connect", () => {
-      console.log("client: connected");
+      console.log("cesium client: connected");
     });
 
     socket.on("keepalive", () => {
-      console.log('client: got keepalive');
+      console.log('cesium client: got keepalive');
     });
 
     socket.on("sensorlogger", body => {
       // body is POSTed sensorlogger push data
       const msg = JSON.parse(body);
       msg.payload.forEach(p => {
-        current_time = Cesium.JulianDate.fromDate(new Date(p["time"] / 1000000));
-        // stop_time = Cesium.JulianDate.addSeconds(
-        //   current_time,
-        //   10,
-        //   new Cesium.JulianDate()
-        // );
+        current_time_ms = p["time"] / 1000000;
+        current_time = Cesium.JulianDate.fromDate(new Date(current_time_ms));
+
         if (p.name == "orientation") {
+          // console.log("orientation");
           if (hpr) {
             if (position != null) {
-              let hpr = new Cesium.HeadingPitchRoll(p.values.heading, p.values.pitch, p.values.roll);
-              hpr.heading -= Cesium.Math.PI_OVER_TWO;
+              let hpr = new Cesium.HeadingPitchRoll(p.values.yaw, p.values.pitch, p.values.roll);
+              // console.log("hpr:", p.values.yaw, p.values.pitch, p.values.roll);
+              hpr.yaw -= Cesium.Math.PI_OVER_TWO;
               orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
               orientationProperty.addSample(current_time, orientation);
             }
@@ -84,101 +114,143 @@ export default {
             Cesium.Quaternion.normalize(orientation, norm_orient);
             orientationProperty.addSample(current_time, norm_orient);
           }
-          console.log("orientation");
-
-          // Extend the life of the balloon object
-
-          // if (balloonEntity != null) {
-          //   balloonEntity.availability = new Cesium.TimeIntervalCollection([
-          //     new Cesium.TimeInterval({ start: start_time, stop: stop_time })
-          //   ]);
-          //   console.log("quaternion");
-          //   viewer.clock.shouldAnimate = false;
-          //   viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
-          //   // viewer.clock.stopTime = stop_time.clone(); // update the stop time
-          //   // viewer.timeline.zoomTo(current_time, stop_time);
-          // }
         }
         if (p.name == "location") {
-          loc_count += 1;
-          // if (start_time == null) {
-          //   start_time = current_time.addSeconds(-2);
-          // }
-          if (balloonEntity == null) {
-            console.log("add baloon");
-
-            balloonEntity = viewer.entities.add({
-              // add path for flight points we already know.
-              // availability: new Cesium.TimeIntervalCollection([
-              //   new Cesium.TimeInterval({ start: start_time, stop: current_time })
-              // ]),
-              position: positionProperty,
-              // point: { pixelSize: 30, color: Cesium.Color.GREEN },
-              model: { uri: "./CesiumBalloon.glb", maximumScale: 5000, minimumPixelSize: 32 },
-              // model: { uri: balloonUri, maximumScale: 5000},
-              orientation: orientationProperty,
-              // orientation: new Cesium.VelocityOrientationProperty(positionProperty),
-              path: new Cesium.PathGraphics({ width: 3 })
-            });
-            // viewer.trackedEntity = balloonEntity;
-            // // Make the camera fly to the balloon.
-            // viewer.flyTo(balloonEntity);
-          }
-          if (!clock_set && loc_count > 3) {
-            start_time = Cesium.JulianDate.addSeconds(
-              current_time,
-              -2,
-              new Cesium.JulianDate()
-            );
-
-            // start_time = current_time.addSeconds(-2);
-
-            balloonEntity.availability = new Cesium.TimeIntervalCollection([
-              new Cesium.TimeInterval({
-                start: start_time, stop: Cesium.JulianDate.addSeconds(
-                  start_time,
-                  3600,
-                  new Cesium.JulianDate()
-                )
-              })
-            ]);
-            clock_set = true;
-            viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
-            viewer.trackedEntity = balloonEntity;
-            // Make the camera fly to the balloon.
-            viewer.flyTo(balloonEntity);
-            viewer.clock.shouldAnimate = false;
-
-          }
-          // viewer.trackedEntity = balloonEntity;
-          // // Make the camera fly to the balloon.
-          // viewer.flyTo(balloonEntity);
-
+          // console.log("location");
 
           position = Cesium.Cartesian3.fromDegrees(
             p.values.longitude,
             p.values.latitude,
-            p.values.altitude
+            p.values.altitude + 50
           );
           positionProperty.addSample(current_time, position);
-          viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
 
-          // Extend the life of the balloon object
-          // balloonEntity.availability = new Cesium.TimeIntervalCollection([
-          //   new Cesium.TimeInterval({ start: start_time, stop: stop_time })
-          // ]);
-          // viewer.clock.shouldAnimate = true;
-          // viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
-          // viewer.timeline.zoomTo(current_time, stop_time);
+          loc_count += 1;
+          if (last_loc_update_ms == null) {
+            last_loc_update_ms = current_time_ms;
+            return;
+          }
+          if (loc_count == 2) {
+            loc_interval_ms = current_time_ms - last_loc_update_ms;
+            return;
+          }
+          teleplot(`loc_interval_raw:${loc_interval_ms}`);
+          const current_time_interval_ms = current_time_ms - last_loc_update_ms;
+          loc_interval_ms = alpha * current_time_interval_ms + (1 - alpha) * loc_interval_ms;
+          teleplot(`loc_interval:${loc_interval_ms}`);
 
-          console.log("location");
+          console.log("loc_interval_ms: ", loc_interval_ms);
+          last_loc_update_ms = current_time_ms;
+
+          if (!clock_set && loc_count > 5) {
+            console.log("start animation");
+
+            viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
+              current_time,
+              - loc_interval_ms * 2 / 1000,
+              new Cesium.JulianDate()
+            );
+            viewer.clock.shouldAnimate = true;
+            clock_set = true;
+
+            // viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
+          }
         }
-        // console.log(p);
       });
     });
 
+    // stop_time = Cesium.JulianDate.addSeconds(
+    //   current_time,
+    //   10,
+    //   new Cesium.JulianDate()
+    // );
+
+    // Extend the life of the balloon object
+
+    // if (balloonEntity != null) {
+    //   balloonEntity.availability = new Cesium.TimeIntervalCollection([
+    //     new Cesium.TimeInterval({ start: start_time, stop: stop_time })
+    //   ]);
+    //   console.log("quaternion");
+    //   viewer.clock.shouldAnimate = false;
+    //   viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
+    //   // viewer.clock.stopTime = stop_time.clone(); // update the stop time
+    //   // viewer.timeline.zoomTo(current_time, stop_time);
+    // }
+    // if (start_time == null) {
+    //   start_time = current_time.addSeconds(-2);
+    // }
+    // viewer.trackedEntity = balloonEntity;
+    // // Make the camera fly to the balloon.
+    // viewer.flyTo(balloonEntity);
+
+
+    // start_time = current_time.addSeconds(-2);
+
+    // balloonEntity.availability = new Cesium.TimeIntervalCollection([
+    //   new Cesium.TimeInterval({
+    //     start: start_time, stop: Cesium.JulianDate.addSeconds(
+    //       start_time,
+    //       3600,
+    //       new Cesium.JulianDate()
+    //     )
+    //   })
+    // ]);
+    // clock_set = true;
+    // viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
+    // viewer.trackedEntity = balloonEntity;
+    // // Make the camera fly to the balloon.
+    // viewer.flyTo(balloonEntity);
+    // viewer.clock.shouldAnimate = false;
+
+
+    // viewer.trackedEntity = balloonEntity;
+    // // Make the camera fly to the balloon.
+    // viewer.flyTo(balloonEntity);
+
+    // Extend the life of the balloon object
+    // balloonEntity.availability = new Cesium.TimeIntervalCollection([
+    //   new Cesium.TimeInterval({ start: start_time, stop: stop_time })
+    // ]);
+    // viewer.clock.shouldAnimate = true;
+    // viewer.clock.currentTime = current_time.clone(); // update the clock displayed in the GUI
+    // viewer.timeline.zoomTo(current_time, stop_time);
+
+
+    // console.log(p);
+
+    function connect() {
+      var serverUrl;
+      var scheme = "ws";
+
+      // If this is an HTTPS connection, we have to use a secure WebSocket
+      // connection too, so add another "s" to the scheme.
+
+      if (document.location.protocol === "https:") {
+        scheme += "s";
+      }
+
+      serverUrl = scheme + "://" + document.location.hostname + ":8081";
+
+      teleplot_ws = new ReconnectingWebSocket(serverUrl, "json");
+      console.log("ReconnectingWebSocket created");
+
+      teleplot_ws.onopen = function () {
+        console.log("onopen");
+        // teleplot_ws.send("hi!");
+      };
+
+      teleplot_ws.onmessage = function (evt) {
+        var msg = JSON.parse(evt.data);
+        console.log("Message received: ");
+        console.dir(msg);
+      };
+    }
+
+    connect();
+
   }
-};
+}
 </script>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->

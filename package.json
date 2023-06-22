@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service build --mode development && node server.js",
+    "run": "node server.js",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint"
   },
@@ -15,7 +16,9 @@
     "core-js": "^3.6.5",
     "dotenv": "^10.0.0",
     "html-webpack-plugin": "^5.5.3",
+    "mdns": "^2.7.2",
     "morgan": "^1.10.0",
+    "reconnecting-websocket": "^4.4.0",
     "socket.io": "^4.2.0",
     "socket.io-client": "^4.2.0",
     "vue": "^3.0.0"

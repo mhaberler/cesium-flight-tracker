@@ -1,51 +1,53 @@
 const express = require('express');
 const { Server } = require("socket.io");
 const app = express();
-const fs = require("fs");
-var net = require('net');
 require('dotenv').config();
 
 const http = require("http");
 const host = '0.0.0.0';
 const port = 4711;
 
-const requestListener = function (req, res) {
-  if (req.method == 'POST') {
-    var body = ''
-    req.on('data', function (data) {
-      body += data
-    })
-    req.on('end', function () {
-      io.emit('sensorlogger', body); // Push to webclient
-    })
+
+var httpserver = http.createServer(function (req, res) {
+  switch (req.method) {
+    case 'POST':
+      var body = '';
+      req.setEncoding('utf8');
+      req.on('data', function (chunk) {
+        if (process.env.DEBUG_SENSORLOGGER_REQUESTS === "1") {
+          console.log('chunk: ' + chunk);
+        }
+        body += chunk;
+      });
+      req.on('end', function () {
+        if (process.env.DEBUG_SENSORLOGGER_REQUESTS === "1") {
+          console.log('end: ' + body);
+        }
+        io.emit('sensorlogger', body);
+      });
+      break;
+
+    case 'GET':
+      break;
   }
   res.writeHead(200);
   res.end();
-};
-
-const httpserver = http.createServer(requestListener);
+});
 httpserver.listen(port, host, () => {
   console.log(`Server is running on http://${host}:${port}`);
 });
-httpserver.on('connect', function (req, socket, head) {
-  console.log('sensorlogger connect');
-});
-httpserver.on('disconnect', function (req, socket, head) {
-  console.log('sensorlogger disconnect');
-});
-
 
 app.use(require('morgan')('dev'));
 app.use(express.static('dist'))
 
 let server = app.listen(8000, function () {
-  console.log('Cesium flight tracker app listening on port 8000!\n');
+  console.log('Cesium flight tracker app listening on port 8000');
 });
 
 const io = new Server(server);
 
 
-io.on('connection', (socket) => {
+io.on('connection', () => {
   console.log('server: cesium client connect')
   // replay history on reload
   // var prev_flight_data = fs.readFileSync("flight_data.json", 'utf-8');
